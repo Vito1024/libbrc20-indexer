@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func GetSha256(data []byte) (hash []byte) {

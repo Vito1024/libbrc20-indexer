@@ -5,21 +5,14 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionRemoveLiquidity(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) (err error) {
 	token0, token1 := f.Params[0], f.Params[1]
-	if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-		if err != nil {
-			return errors.New("func: removeLiq poolPair invalid")
-		}
-	}
 	poolPair := GetLowerInnerPairNameByToken(token0, token1)
+
 	pool, ok := moduleInfo.SwapPoolTotalBalanceDataMap[poolPair]
 	if !ok {
 		return errors.New("removeLiq: pool invalid")
@@ -36,21 +29,16 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionRemoveLiquidity(moduleInfo *mo
 	// log.Printf("[%s] pool before removeliq [%s] %s: %s, %s: %s, lp: %s", moduleInfo.ID, poolPair, pool.Tick[0], pool.TickBalance[0], pool.Tick[1], pool.TickBalance[1], pool.LpBalance)
 	log.Printf("pool removeliq params: %v", f.Params)
 
-	offset := 0
-	if g.BestHeight >= conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		offset = 1
-	}
-
-	tokenLpAmtStr := f.Params[1+offset]
-	token0AmtStr := f.Params[2+offset]
-	token1AmtStr := f.Params[3+offset]
+	tokenLpAmtStr := f.Params[2]
+	token0AmtStr := f.Params[3]
+	token1AmtStr := f.Params[4]
 
 	token0Amt, _ := g.CheckTickVerify(token0, token0AmtStr)
 	token1Amt, _ := g.CheckTickVerify(token1, token1AmtStr)
 	tokenLpAmt, _ := decimal.NewDecimalFromString(tokenLpAmtStr, 18)
 
 	// LP Balance Slippage Check
-	slippageAmtStr := f.Params[4+offset]
+	slippageAmtStr := f.Params[5]
 	slippageAmt, _ := decimal.NewDecimalFromString(slippageAmtStr, 3)
 
 	var token0Idx, token1Idx int
@@ -78,8 +66,6 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionRemoveLiquidity(moduleInfo *mo
 			lpFeelpbalance := usersLpBalanceInPool[moduleInfo.LpFeePkScript]
 			lpFeelpbalance = lpFeelpbalance.Add(lpFee)
 			usersLpBalanceInPool[moduleInfo.LpFeePkScript] = lpFeelpbalance
-			// set update flag
-			moduleInfo.LPTokenUsersBalanceUpdatedMap[poolPair+moduleInfo.LpFeePkScript] = struct{}{}
 			// lpFee-lp-balance
 			lpFeelpsBalance, ok := moduleInfo.UsersLPTokenBalanceMap[moduleInfo.LpFeePkScript]
 			if !ok {
@@ -137,14 +123,10 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionRemoveLiquidity(moduleInfo *mo
 	// Obtains user token balance
 	token0Balance.SwapAccountBalance = token0Balance.SwapAccountBalance.Add(amt0)
 	token1Balance.SwapAccountBalance = token1Balance.SwapAccountBalance.Add(amt1)
-
-	// update at height
-	token0Balance.UpdateHeight = g.BestHeight
-	token1Balance.UpdateHeight = g.BestHeight
-	pool.UpdateHeight = g.BestHeight
+	token0Balance.SwapAccountBalanceSafe = token0Balance.SwapAccountBalanceSafe.Add(amt0)
+	token1Balance.SwapAccountBalanceSafe = token1Balance.SwapAccountBalanceSafe.Add(amt1)
 
 	pool.LpBalance = pool.LpBalance.Sub(tokenLpAmt) // fixme
-
 	// Deduct token balance in the pool
 	pool.TickBalance[token0Idx] = pool.TickBalance[token0Idx].Sub(amt0)
 	pool.TickBalance[token1Idx] = pool.TickBalance[token1Idx].Sub(amt1)

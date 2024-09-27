@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCreateModule(data *model.InscriptionBRC20Data) error {
@@ -118,8 +118,7 @@ func (g *BRC20ModuleIndexer) ProcessCreateModule(data *model.InscriptionBRC20Dat
 
 		// swap
 		// lp token balance of address in module [pool][address]balance
-		LPTokenUsersBalanceMap:        make(map[string]map[string]*decimal.Decimal, 0),
-		LPTokenUsersBalanceUpdatedMap: make(map[string]struct{}, 0),
+		LPTokenUsersBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
 
 		// lp token of users in module [moduleid][address][pool]balance
 		UsersLPTokenBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
@@ -127,11 +126,7 @@ func (g *BRC20ModuleIndexer) ProcessCreateModule(data *model.InscriptionBRC20Dat
 		// swap total balance
 		// total balance of pool in module [pool]balanceData
 		SwapPoolTotalBalanceDataMap: make(map[string]*model.BRC20ModulePoolTotalBalance, 0),
-
-		ConditionalApproveStateBalanceDataMap: make(map[string]*model.BRC20ModuleConditionalApproveStateBalance, 0),
 	}
-
-	m.UpdateHeight = data.Height
 
 	// deployInfo := model.NewInscriptionBRC20SwapInfo(data)
 	// deployInfo.Module = inscriptionId

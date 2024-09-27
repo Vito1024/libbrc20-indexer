@@ -8,14 +8,13 @@ import (
 	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
-func (g *BRC20ModuleIndexer) GetWithdrawInfoByKey(createIdxKey string) (
+func (g *BRC20ModuleIndexer) GetWithdrawInfoByKey(createIdxKey uint64) (
 	withdrawInfo *model.InscriptionBRC20SwapInfo) {
 	var ok bool
 	// withdraw
@@ -55,10 +54,6 @@ func (g *BRC20ModuleIndexer) ProcessWithdraw(data *model.InscriptionBRC20Data, w
 
 	// 	tokenInfo.History = append(tokenInfo.History, history)
 	// 	// tokenInfo.HistoryWithdraw = append(tokenInfo.HistoryTransfer, history)
-	// 	if !isInvalid {
-	// 		// all history
-	// 		g.AllHistory = append(g.AllHistory, history)
-	// 	}
 	// }
 
 	// from
@@ -94,7 +89,6 @@ func (g *BRC20ModuleIndexer) ProcessWithdraw(data *model.InscriptionBRC20Data, w
 	balanceWithdraw := withdrawInfo.Amount
 	fromTokenBalance.ReadyToWithdrawAmount = fromTokenBalance.ReadyToWithdrawAmount.Sub(balanceWithdraw)
 	delete(fromTokenBalance.ReadyToWithdrawMap, data.CreateIdxKey)
-	fromTokenBalance.UpdateHeight = data.Height
 
 	if fromTokenBalance.AvailableBalance.Cmp(balanceWithdraw) < 0 { // invalid
 		isInvalid = true
@@ -118,7 +112,7 @@ func (g *BRC20ModuleIndexer) ProcessWithdraw(data *model.InscriptionBRC20Data, w
 		// from invalid history
 		fromHistory := model.NewBRC20ModuleHistory(true, constant.BRC20_HISTORY_MODULE_TYPE_N_WITHDRAW_FROM, withdrawInfo.Data, data, nil, false)
 		fromTokenBalance.History = append(fromTokenBalance.History, fromHistory)
-		return nil
+		return errors.New("withdraw, insufficient available balance")
 	}
 
 	// set from
@@ -131,8 +125,6 @@ func (g *BRC20ModuleIndexer) ProcessWithdraw(data *model.InscriptionBRC20Data, w
 
 	// to
 	tokenBalance := g.GetUserTokenBalance(withdrawInfo.Tick, receiverPkScript)
-	// set to
-	tokenBalance.UpdateHeight = data.Height
 
 	if data.BlockTime > 0 {
 		tokenBalance.AvailableBalanceSafe = tokenBalance.AvailableBalanceSafe.Add(withdrawInfo.Amount)
@@ -173,7 +165,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeWithdraw(data *model.InscriptionBRC2
 		return err
 	}
 
-	// lower case only
+	// lower case moduleid only
 	if body.Module != strings.ToLower(body.Module) {
 		return errors.New("module id invalid")
 	}
@@ -183,14 +175,11 @@ func (g *BRC20ModuleIndexer) ProcessInscribeWithdraw(data *model.InscriptionBRC2
 		return errors.New("module invalid")
 	}
 
-	if data.Height < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		return errors.New("module withdraw disable")
-	}
-
-	if len(body.Tick) != 4 && len(body.Tick) != 5 {
+	uniqueLowerTicker, err := utils.GetValidUniqueLowerTickerTicker(body.Tick)
+	if err != nil {
 		return errors.New("tick invalid")
 	}
-	uniqueLowerTicker := strings.ToLower(body.Tick)
+
 	tokenInfo, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]
 	if !ok {
 		return errors.New("tick not exist")
@@ -205,7 +194,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeWithdraw(data *model.InscriptionBRC2
 		return errors.New("amount out of range")
 	}
 
-	balanceWithdraw := decimal.NewDecimalCopy(amt)
+	balanceWithdraw := amt
 
 	// Unify ticker case
 	body.Tick = tokenInfo.Ticker
@@ -234,16 +223,14 @@ func (g *BRC20ModuleIndexer) ProcessInscribeWithdraw(data *model.InscriptionBRC2
 		history.Valid = true
 		// Update personal withdraw lookup table ReadyToWithdrawMap
 		if moduleTokenBalance.ReadyToWithdrawMap == nil {
-			moduleTokenBalance.ReadyToWithdrawMap = make(map[string]*model.InscriptionBRC20Data, 1)
+			moduleTokenBalance.ReadyToWithdrawMap = make(map[uint64]*model.InscriptionBRC20Data, 1)
 		}
 		moduleTokenBalance.ReadyToWithdrawMap[data.CreateIdxKey] = data
 
-		moduleTokenBalance.UpdateHeight = data.Height
 		// Update global withdraw lookup table
 		g.InscriptionsWithdrawMap[data.CreateIdxKey] = withdrawInfo
 		// g.InscriptionsValidBRC20DataMap[data.CreateIdxKey] = withdrawInfo.Data  // fixme
 	}
 
 	return nil
-
 }

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionSendLp(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) error {
@@ -55,10 +55,6 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSendLp(moduleInfo *model.BRC20
 	lpBalanceTo := usersLpBalanceInPool[string(pkScriptTo)]
 	lpBalanceTo = lpBalanceTo.Add(tokenLpAmt)
 	usersLpBalanceInPool[string(pkScriptTo)] = lpBalanceTo
-
-	// set update flag
-	moduleInfo.LPTokenUsersBalanceUpdatedMap[poolPair+f.PkScript] = struct{}{}
-	moduleInfo.LPTokenUsersBalanceUpdatedMap[poolPair+string(pkScriptTo)] = struct{}{}
 
 	// touser-lp-balance
 	lpsBalanceTo, ok := moduleInfo.UsersLPTokenBalanceMap[string(pkScriptTo)]

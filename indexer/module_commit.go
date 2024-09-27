@@ -6,12 +6,12 @@ import (
 	"errors"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
-func (g *BRC20ModuleIndexer) GetCommitInfoByKey(createIdxKey string) (
+func (g *BRC20ModuleIndexer) GetCommitInfoByKey(createIdxKey uint64) (
 	commitData *model.InscriptionBRC20Data, isInvalid bool) {
 	var ok bool
 	// commit
@@ -62,11 +62,6 @@ func (g *BRC20ModuleIndexer) ProcessCommit(dataFrom, dataTo *model.InscriptionBR
 		return errors.New("module sequencer invalid")
 	}
 
-	eachFuntionSize, err := GetEachItemLengthOfCommitJsonData(dataFrom.ContentBody)
-	if err != nil || len(body.Data) != len(eachFuntionSize) {
-		return errors.New("commit, get function size failed")
-	}
-
 	log.Printf("ProcessCommitVerify commit[%s] ", inscriptionId)
 	var pickUsersPkScript = make(map[string]bool, 0)
 	var pickTokensTick = make(map[string]bool, 0)
@@ -75,12 +70,12 @@ func (g *BRC20ModuleIndexer) ProcessCommit(dataFrom, dataTo *model.InscriptionBR
 	swapState := g.CherryPick(body.Module, pickUsersPkScript, pickTokensTick, pickPoolsPair)
 
 	// Need to cherrypick, then verify on the copy.
-	if idx, _, err := swapState.ProcessCommitVerify(inscriptionId, body, eachFuntionSize, nil); err != nil {
+	if idx, _, err := swapState.ProcessCommitVerify(inscriptionId, body, nil); err != nil {
 		log.Printf("commit invalid, function[%d] %s, txid: %s", idx, err, hex.EncodeToString([]byte(dataTo.TxId)))
 		return err
 	}
 	// Execute in reality if successful.
-	if idx, _, err := g.ProcessCommitVerify(inscriptionId, body, eachFuntionSize, nil); err != nil {
+	if idx, _, err := g.ProcessCommitVerify(inscriptionId, body, nil); err != nil {
 		log.Printf("commit invalid, function[%d] %s, txid: %s", idx, err, hex.EncodeToString([]byte(dataTo.TxId)))
 		return err
 	}
@@ -117,14 +112,9 @@ func (g *BRC20ModuleIndexer) ProcessCommitCheck(data *model.InscriptionBRC20Data
 		return -1, errors.New("commit, module not exist")
 	}
 
-	eachFuntionSize, err := GetEachItemLengthOfCommitJsonData(data.ContentBody)
-	if err != nil || len(body.Data) != len(eachFuntionSize) {
-		return -1, errors.New("commit, get function size failed")
-	}
-
 	inscriptionId := data.GetInscriptionId()
 	log.Printf("ProcessCommitVerify commit[%s] ", inscriptionId)
-	idx, _, err := g.ProcessCommitVerify(inscriptionId, body, eachFuntionSize, nil)
+	idx, _, err := g.ProcessCommitVerify(inscriptionId, body, nil)
 	if err != nil {
 		return idx, err
 	}

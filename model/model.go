@@ -5,21 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 // nft create point on create
 type NFTCreateIdxKey struct {
 	Height     uint32 // Height of NFT show in block onCreate
-	IdxInBlock uint64 // Index of NFT show in block onCreate
+	IdxInBlock uint32 // Index of NFT show in block onCreate
 }
 
 func (p *NFTCreateIdxKey) String() string {
 	var key [12]byte
 	binary.LittleEndian.PutUint32(key[0:4], p.Height)
-	binary.LittleEndian.PutUint64(key[4:12], p.IdxInBlock)
+	binary.LittleEndian.PutUint64(key[4:12], uint64(p.IdxInBlock))
 	return string(key[:])
+}
+
+func (p *NFTCreateIdxKey) Uint64() uint64 {
+	return uint64(p.Height)<<32 + uint64(p.IdxInBlock)
 }
 
 // event raw data
@@ -37,7 +41,8 @@ type InscriptionBRC20Data struct {
 	InscriptionNumber int64
 	Parent            []byte
 	ContentBody       []byte
-	CreateIdxKey      string
+	CreateIdxKey      uint64
+	CreateIdxString   string
 
 	Height    uint32 // Height of NFT show in block onCreate
 	TxIdx     uint32
@@ -139,11 +144,12 @@ func (body *InscriptionBRC20DeployContent) Unmarshal(contentBody []byte) (err er
 	if v, ok := bodyMap["tick"].(string); ok {
 		body.BRC20Tick = v
 	}
-	if _, ok := bodyMap["self_mint"]; ok { // has self_mint
+	if _, ok := bodyMap["self_mint"]; !ok {
 		body.BRC20SelfMint = "false"
-	}
-	if v, ok := bodyMap["self_mint"].(string); ok { // self_mint is string
-		body.BRC20SelfMint = v
+	} else {
+		if v, ok := bodyMap["self_mint"].(string); ok {
+			body.BRC20SelfMint = v
+		}
 	}
 	if v, ok := bodyMap["max"].(string); ok {
 		body.BRC20Max = v
@@ -169,10 +175,9 @@ func (body *InscriptionBRC20DeployContent) Unmarshal(contentBody []byte) (err er
 
 // all ticker (state and history)
 type BRC20TokenInfo struct {
-	UpdateHeight uint32
-
-	Ticker string
-	Deploy *InscriptionBRC20TickInfo
+	Ticker   string
+	SelfMint bool
+	Deploy   *InscriptionBRC20TickInfo // fixme: 需要将静态内容提取到外面，访问时不要多一次指针解析了
 
 	History                 []uint32
 	HistoryMint             []uint32
@@ -194,10 +199,11 @@ type InscriptionBRC20TickInfo struct {
 	Amount *decimal.Decimal `json:"-"`
 	Meta   *InscriptionBRC20Data
 
-	SelfMint bool `json:"-"`
+	Max    *decimal.Decimal `json:"-"`
+	Max999 *decimal.Decimal `json:"-"`
+	Limit  *decimal.Decimal `json:"-"`
 
-	Max   *decimal.Decimal `json:"-"`
-	Limit *decimal.Decimal `json:"-"`
+	MaxMintTimes uint64 `json:"-"`
 
 	TotalMinted        *decimal.Decimal `json:"-"`
 	ConfirmedMinted    *decimal.Decimal `json:"-"`
@@ -217,7 +223,7 @@ type InscriptionBRC20TickInfo struct {
 	PkScript string `json:"-"`
 
 	InscriptionNumber int64  `json:"inscriptionNumber"`
-	CreateIdxKey      string `json:"-"`
+	CreateIdxString   string `json:"-"`
 	Height            uint32 `json:"-"`
 	TxIdx             uint32 `json:"-"`
 	BlockTime         uint32 `json:"-"`
@@ -235,8 +241,7 @@ func (d *InscriptionBRC20TickInfo) GetInscriptionId() string {
 
 func (in *InscriptionBRC20TickInfo) DeepCopy() (copy *InscriptionBRC20TickInfo) {
 	copy = &InscriptionBRC20TickInfo{
-		Tick:     in.Tick,
-		SelfMint: in.SelfMint,
+		Tick: in.Tick,
 
 		Data:    in.Data,
 		Decimal: in.Decimal,
@@ -250,22 +255,24 @@ func (in *InscriptionBRC20TickInfo) DeepCopy() (copy *InscriptionBRC20TickInfo) 
 		PkScript: in.PkScript,
 
 		InscriptionNumber: in.InscriptionNumber,
-		CreateIdxKey:      in.CreateIdxKey,
+		CreateIdxString:   in.CreateIdxString,
 		Height:            in.Height,
 		TxIdx:             in.TxIdx,
 		BlockTime:         in.BlockTime,
 
 		// runtime value
-		Max:                decimal.NewDecimalCopy(in.Max),
-		Limit:              decimal.NewDecimalCopy(in.Limit),
-		TotalMinted:        decimal.NewDecimalCopy(in.TotalMinted),
-		ConfirmedMinted:    decimal.NewDecimalCopy(in.ConfirmedMinted),
-		ConfirmedMinted1h:  decimal.NewDecimalCopy(in.ConfirmedMinted1h),
-		ConfirmedMinted24h: decimal.NewDecimalCopy(in.ConfirmedMinted24h),
-		Burned:             decimal.NewDecimalCopy(in.Burned),
-		Amount:             decimal.NewDecimalCopy(in.Amount),
+		Max:                in.Max,
+		Max999:             in.Max999,
+		Limit:              in.Limit,
+		TotalMinted:        in.TotalMinted,
+		ConfirmedMinted:    in.ConfirmedMinted,
+		ConfirmedMinted1h:  in.ConfirmedMinted1h,
+		ConfirmedMinted24h: in.ConfirmedMinted24h,
+		Burned:             in.Burned,
+		Amount:             in.Amount,
 
-		MintTimes: in.MintTimes,
+		MintTimes:    in.MintTimes,
+		MaxMintTimes: in.MaxMintTimes,
 
 		CompleteHeight:    in.CompleteHeight,
 		CompleteBlockTime: in.CompleteBlockTime,
@@ -294,7 +301,7 @@ func NewInscriptionBRC20TickInfo(tick, operation string, data *InscriptionBRC20D
 		PkScript: data.PkScript,
 
 		InscriptionNumber: data.InscriptionNumber,
-		CreateIdxKey:      data.CreateIdxKey,
+		CreateIdxString:   data.CreateIdxString,
 		Height:            data.Height,
 		TxIdx:             data.TxIdx,
 		BlockTime:         data.BlockTime,
@@ -309,14 +316,12 @@ type BRC20UserHistory struct {
 
 // state of address for each tick, (balance and history)
 type BRC20TokenBalance struct {
-	UpdateHeight uint32
-
 	Ticker               string
 	PkScript             string
 	AvailableBalance     *decimal.Decimal
 	AvailableBalanceSafe *decimal.Decimal
 	TransferableBalance  *decimal.Decimal
-	ValidTransferMap     map[string]*InscriptionBRC20TickInfo
+	ValidTransferMap     map[uint64]*InscriptionBRC20TickInfo
 
 	History                 []uint32
 	HistoryMint             []uint32
@@ -333,14 +338,14 @@ func (in *BRC20TokenBalance) DeepCopy() (tb *BRC20TokenBalance) {
 	tb = &BRC20TokenBalance{
 		Ticker:               in.Ticker,
 		PkScript:             in.PkScript,
-		AvailableBalanceSafe: decimal.NewDecimalCopy(in.AvailableBalanceSafe),
-		AvailableBalance:     decimal.NewDecimalCopy(in.AvailableBalance),
-		TransferableBalance:  decimal.NewDecimalCopy(in.TransferableBalance),
+		AvailableBalanceSafe: in.AvailableBalanceSafe,
+		AvailableBalance:     in.AvailableBalance,
+		TransferableBalance:  in.TransferableBalance,
 	}
 
-	tb.ValidTransferMap = make(map[string]*InscriptionBRC20TickInfo, len(in.ValidTransferMap))
+	tb.ValidTransferMap = make(map[uint64]*InscriptionBRC20TickInfo, len(in.ValidTransferMap))
 	for k, v := range in.ValidTransferMap {
-		tb.ValidTransferMap[k] = v.DeepCopy()
+		tb.ValidTransferMap[k] = v
 	}
 
 	tb.History = make([]uint32, len(in.History))

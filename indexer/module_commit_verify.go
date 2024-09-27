@@ -9,11 +9,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 var GResultsExternal []*model.SwapFunctionResultCheckState
@@ -118,11 +117,7 @@ func (g *BRC20ModuleIndexer) BRC20ModuleVerifySwapCommitContent(
 	}
 
 	// verify current commit
-	eachFuntionSize, err := GetEachItemLengthOfCommitJsonData([]byte(commitStr))
-	if err != nil {
-		return -1, true, errors.New("commit, get function size failed")
-	}
-	idx, critical, err = g.ProcessCommitVerify("", commitObj, eachFuntionSize, results)
+	idx, critical, err = g.ProcessCommitVerify("", commitObj, results)
 	if err != nil {
 		log.Printf("commit verify failed, send function[%d] invalid", idx)
 		return idx, critical, err
@@ -142,7 +137,7 @@ func (g *BRC20ModuleIndexer) BRC20ResultsPreVerify(moduleInfo *model.BRC20Module
 				userPkScript = string(pk)
 			}
 		}
-		if len(user.Tick) == 4 {
+		if strings.Index(user.Tick, "/") == -1 {
 			tokenAmt, ok := g.CheckTickVerify(user.Tick, user.Balance)
 			if !ok {
 				return errors.New(fmt.Sprintf("result users[%d] balance invalid", idxUser))
@@ -150,11 +145,11 @@ func (g *BRC20ModuleIndexer) BRC20ResultsPreVerify(moduleInfo *model.BRC20Module
 
 			// balance check
 			tokenBalance := moduleInfo.GetUserTokenBalance(user.Tick, userPkScript)
-			if tokenBalance.SwapAccountBalance.Cmp(tokenAmt) != 0 {
+			if tokenBalance.SwapAccountBalanceSafe.Cmp(tokenAmt) != 0 {
 				return errors.New(fmt.Sprintf("result users[%d] %s amount not match (%s != %s)",
 					idxUser, user.Tick,
 					tokenAmt.String(),
-					tokenBalance.SwapAccountBalance.String(),
+					tokenBalance.SwapAccountBalanceSafe.String(),
 				))
 			}
 
@@ -271,11 +266,6 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 		content += fmt.Sprintf("gas_price: %s\n", body.GasPrice)
 	}
 
-	paramOffset := 0
-	if g.BestHeight >= conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		paramOffset = 1
-	}
-
 	// for previous id
 	functionsByAddressMap := make(map[string][]string)
 	for idx, f := range body.Data {
@@ -317,22 +307,16 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 			// Check for duplicate pairs when the Commit inscription effect is applied.
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_ADD_LIQ {
-			if len(f.Params) != 5+paramOffset {
+			if len(f.Params) != 6 {
 				return idx, errors.New("func: addLiq params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: addLiq poolPair invalid")
-				}
-			}
 
-			token0AmtStr := f.Params[1+paramOffset]
-			token1AmtStr := f.Params[2+paramOffset]
-			tokenLpAmtStr := f.Params[3+paramOffset]
-			slippage := f.Params[4+paramOffset]
+			token0AmtStr := f.Params[2]
+			token1AmtStr := f.Params[3]
+			tokenLpAmtStr := f.Params[4]
+			slippage := f.Params[5]
 
 			if _, ok := g.CheckTickVerify(token0, token0AmtStr); !ok {
 				return idx, errors.New("func: addLiq amt0 invalid")
@@ -351,21 +335,16 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 			}
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_REMOVE_LIQ {
-			if len(f.Params) != 5+paramOffset {
+			if len(f.Params) != 6 {
 				return idx, errors.New("func: removeLiq params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: removeLiq poolPair invalid")
-				}
-			}
-			tokenLpAmtStr := f.Params[1+paramOffset]
-			token0AmtStr := f.Params[2+paramOffset]
-			token1AmtStr := f.Params[3+paramOffset]
-			slippage := f.Params[4+paramOffset]
+
+			tokenLpAmtStr := f.Params[2]
+			token0AmtStr := f.Params[3]
+			token1AmtStr := f.Params[4]
+			slippage := f.Params[5]
 
 			if _, ok := CheckAmountVerify(tokenLpAmtStr, 18); !ok {
 				return idx, errors.New(fmt.Sprintf("func: removeLiq amtLp invalid, %s/%s", token0, token1))
@@ -384,49 +363,43 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 			}
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_SWAP {
-			if len(f.Params) != 6+paramOffset {
+			if len(f.Params) != 7 {
 				return idx, errors.New("func: swap params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: swap poolPair invalid")
-				}
-			}
 
 			// Check that the first parameter must be one of the token pairs.
-			if token := f.Params[1+paramOffset]; token != token0 && token != token1 {
+			if token := f.Params[2]; token != token0 && token != token1 {
 				return idx, errors.New("func: swap token invalid")
 			}
 
-			derection := f.Params[3+paramOffset]
+			derection := f.Params[4]
 			if derection != "exactIn" && derection != "exactOut" {
 				return idx, errors.New("func: swap derection invalid")
 			}
 
 			var tokenIn, tokenInAmtStr, tokenOut, tokenOutAmtStr string
 			if derection == "exactIn" {
-				tokenIn = f.Params[1+paramOffset]
-				tokenInAmtStr = f.Params[2+paramOffset]
+				tokenIn = f.Params[2]
+				tokenInAmtStr = f.Params[3]
 
 				if tokenIn == token0 {
 					tokenOut = token1
 				} else {
 					tokenOut = token0
 				}
-				tokenOutAmtStr = f.Params[4+paramOffset]
+				tokenOutAmtStr = f.Params[5]
 			} else if derection == "exactOut" {
-				tokenOut = f.Params[1+paramOffset]
-				tokenOutAmtStr = f.Params[2+paramOffset]
+				tokenOut = f.Params[2]
+				tokenOutAmtStr = f.Params[3]
 
 				if tokenOut == token0 {
 					tokenIn = token1
 				} else {
 					tokenIn = token0
 				}
-				tokenInAmtStr = f.Params[4+paramOffset]
+				tokenInAmtStr = f.Params[5]
 			}
 
 			if _, ok := g.CheckTickVerify(tokenIn, tokenInAmtStr); !ok {
@@ -437,7 +410,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 				return idx, errors.New("func: swap amt1 invalid")
 			}
 
-			slippage := f.Params[5+paramOffset]
+			slippage := f.Params[6]
 			if _, ok := CheckAmountVerify(slippage, 3); !ok {
 				return idx, errors.New("func: swap slippage invalid")
 			}
@@ -472,7 +445,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_SENDLP {
 			if len(f.Params) != 4 {
-				return idx, errors.New("func: send params invalid")
+				return idx, errors.New("func: sendlp params invalid")
 			}
 
 			addressTo := f.Params[0]
@@ -484,10 +457,10 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 			tokenOrPair := GetLowerInnerPairNameByToken(token0, token1)
 			tokenAmtStr := f.Params[3]
 			if _, _, err := utils.DecodeTokensFromSwapPair(tokenOrPair); err != nil {
-				return idx, errors.New("func: send lp invalid")
+				return idx, errors.New("func: sendlp invalid")
 			}
 			if _, ok := CheckAmountVerify(tokenAmtStr, 18); !ok {
-				return idx, errors.New(fmt.Sprintf("func: send amtLp invalid, %s", tokenAmtStr))
+				return idx, errors.New(fmt.Sprintf("func: sendlp amtLp invalid, %s", tokenAmtStr))
 			}
 
 		} else {
@@ -500,7 +473,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeCommitPreVerify(body *model.Inscript
 }
 
 func (g *BRC20ModuleIndexer) ProcessCommitVerify(commitId string, body *model.InscriptionBRC20ModuleSwapCommitContent,
-	eachFuntionSize []uint64, results []*model.SwapFunctionResultCheckState) (index int, critical bool, err error) {
+	results []*model.SwapFunctionResultCheckState) (index int, critical bool, err error) {
 
 	// check module exist
 	moduleInfo, ok := g.ModulesInfoMap[body.Module]
@@ -527,9 +500,6 @@ func (g *BRC20ModuleIndexer) ProcessCommitVerify(commitId string, body *model.In
 
 	gasPriceAmt, _ := g.CheckTickVerify(moduleInfo.GasTick, body.GasPrice)
 
-	if len(body.Data) != len(eachFuntionSize) {
-		return -1, true, errors.New("commit, function size not match data")
-	}
 	for idx, f := range body.Data {
 		if pkScript, err := utils.GetPkScriptByAddress(f.Address, conf.GlobalNetParams); err != nil {
 			return idx, true, errors.New("commit, addr invalid")
@@ -539,11 +509,7 @@ func (g *BRC20ModuleIndexer) ProcessCommitVerify(commitId string, body *model.In
 
 		// gas fee
 		if gasPriceAmt.Sign() > 0 {
-			size := eachFuntionSize[idx]
-			if g.BestHeight >= conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				size = 1
-			}
-			gasAmt := gasPriceAmt.Mul(decimal.NewDecimal(size, 3))
+			gasAmt := gasPriceAmt
 			// log.Printf("process commit[%d] size: %d, gas fee: %s, module[%s]", idx, size, gasAmt.String(), body.Module)
 			if err := g.ProcessCommitFunctionGasFee(moduleInfo, f.PkScript, gasAmt); err != nil { // has update
 				log.Printf("process commit[%d] gas failed: %s", idx, err)
@@ -640,11 +606,6 @@ func (g *BRC20ModuleIndexer) InitCherryPickFilter(body *model.InscriptionBRC20Mo
 
 	pickTokensTick[moduleInfo.GasTick] = true
 
-	paramOffset := 0
-	if g.BestHeight >= conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		paramOffset = 1
-	}
-
 	for idx, f := range body.Data {
 		if pkScript, err := utils.GetPkScriptByAddress(f.Address, conf.GlobalNetParams); err != nil {
 			return idx, errors.New("addr invalid")
@@ -671,17 +632,12 @@ func (g *BRC20ModuleIndexer) InitCherryPickFilter(body *model.InscriptionBRC20Mo
 			pickTokensTick[token1] = true
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_ADD_LIQ {
-			if len(f.Params) != 5+paramOffset {
+			if len(f.Params) != 6 {
 				return idx, errors.New("func: addLiq params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: addLiq poolPair invalid")
-				}
-			}
+
 			// pair
 			poolPair := GetLowerInnerPairNameByToken(token0, token1)
 			pickPoolsPair[poolPair] = true
@@ -693,17 +649,12 @@ func (g *BRC20ModuleIndexer) InitCherryPickFilter(body *model.InscriptionBRC20Mo
 			pickTokensTick[token1] = true
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_REMOVE_LIQ {
-			if len(f.Params) != 5+paramOffset {
+			if len(f.Params) != 6 {
 				return idx, errors.New("func: removeLiq params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: removeLiq poolPair invalid")
-				}
-			}
+
 			// pair
 			poolPair := GetLowerInnerPairNameByToken(token0, token1)
 			pickPoolsPair[poolPair] = true
@@ -715,17 +666,12 @@ func (g *BRC20ModuleIndexer) InitCherryPickFilter(body *model.InscriptionBRC20Mo
 			pickTokensTick[token1] = true
 
 		} else if f.Function == constant.BRC20_SWAP_FUNCTION_SWAP {
-			if len(f.Params) != 6+paramOffset {
+			if len(f.Params) != 7 {
 				return idx, errors.New("func: swap params invalid")
 			}
 
 			token0, token1 := f.Params[0], f.Params[1]
-			if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-				token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-				if err != nil {
-					return idx, errors.New("func: swap poolPair invalid")
-				}
-			}
+
 			// pair
 			poolPair := GetLowerInnerPairNameByToken(token0, token1)
 			pickPoolsPair[poolPair] = true

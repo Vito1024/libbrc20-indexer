@@ -13,21 +13,33 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
 )
 
 func DecodeTokensFromSwapPair(tickPair string) (token0, token1 string, err error) {
-	if len(tickPair) != 9 || tickPair[4] != '/' {
+	slashIdx := strings.Index(tickPair, "/")
+	if len(tickPair) < conf.TICK_MIN_LEN*2+1 ||
+		len(tickPair) > conf.TICK_MAX_LEN*2+1 ||
+		slashIdx < conf.TICK_MIN_LEN ||
+		slashIdx > conf.TICK_MAX_LEN ||
+		len(tickPair)-(slashIdx+1) < conf.TICK_MIN_LEN {
 		return "", "", errors.New("func: removeLiq tickPair invalid")
 	}
-	token0 = tickPair[:4]
-	token1 = tickPair[5:]
+	token0 = tickPair[:slashIdx]
+	token1 = tickPair[slashIdx+1:]
 
 	return token0, token1, nil
 }
 
 func GetValidUniqueLowerTickerTicker(ticker string) (lowerTicker string, err error) {
-	if len(ticker) != 4 && len(ticker) != 5 {
+	if len(ticker) < conf.TICK_MIN_LEN || len(ticker) > conf.TICK_MAX_LEN {
 		return "", errors.New("ticker len invalid")
+	}
+
+	for _, b := range []byte(ticker) {
+		if TickerB63[b] > 63 {
+			return "", errors.New("ticker invalid")
+		}
 	}
 
 	lowerTicker = strings.ToLower(ticker)
@@ -53,9 +65,6 @@ func GetHash256(data []byte) (hash []byte) {
 }
 
 func HashString(data []byte) (res string) {
-	if len(data) != 32 {
-		return "0000000000000000000000000000000000000000000000000000000000000000"
-	}
 	length := 32
 	var reverseData [32]byte
 
@@ -132,13 +141,19 @@ func GetAddressFromScript(script []byte, params *chaincfg.Params) (string, error
 }
 
 func GetModuleFromScript(script []byte) (module string, ok bool) {
-	if len(script) < 34 || len(script) > 38 {
+	n := len(script)
+	if n < 34 || n > 38 {
 		return "", false
 	}
 	if script[0] != 0x6a {
 		return "", false
 	}
-	if int(script[1])+2 != len(script) {
+	if int(script[1])+2 != n {
+		return "", false
+	}
+
+	// remove trailling 0
+	if n > 34 && script[n-1] == 0 {
 		return "", false
 	}
 

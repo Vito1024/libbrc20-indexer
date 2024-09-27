@@ -2,10 +2,9 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
 )
 
 // decode data
@@ -101,102 +100,8 @@ type InscriptionBRC20ModuleSwapCommitContent struct {
 	Data     []*SwapFunctionData `json:"data,omitempty"`
 }
 
-type TransferStateForConditionalApprove struct {
-	Tick    string
-	From    string
-	To      string
-	Balance *decimal.Decimal
-
-	InscriptionId string
-	Max           string // origin amount
-}
-
-func (d *TransferStateForConditionalApprove) DeepCopy() (copy *TransferStateForConditionalApprove) {
-	copy = &TransferStateForConditionalApprove{
-		Tick:          d.Tick,
-		From:          d.From,
-		To:            d.To,
-		Balance:       decimal.NewDecimalCopy(d.Balance), // maybe no need copy
-		InscriptionId: d.InscriptionId,
-		Max:           d.Max,
-	}
-	return copy
-}
-
-type ApproveStateForConditionalApprove struct {
-	Module string
-	Tick   string
-
-	Owner   string
-	Balance *decimal.Decimal
-
-	ApproveInfo *InscriptionBRC20SwapConditionalApproveInfo
-	ToData      *InscriptionBRC20Data
-}
-
-func (d *ApproveStateForConditionalApprove) DeepCopy() (copy *ApproveStateForConditionalApprove) {
-	copy = &ApproveStateForConditionalApprove{
-		Module: d.Module,
-		Tick:   d.Tick,
-
-		Owner:   d.Owner,
-		Balance: decimal.NewDecimalCopy(d.Balance), // maybe no need copy
-
-		ApproveInfo: d.ApproveInfo.DeepCopy(),
-		ToData:      d.ToData,
-	}
-	return copy
-}
-
-type ConditionalApproveEvent struct {
-	Module string
-	Tick   string
-
-	TransferInscriptionId string
-	TransferMax           string
-
-	From    string
-	To      string
-	Amount  *decimal.Decimal
-	Balance *decimal.Decimal
-
-	FromData InscriptionBRC20Data
-	ToData   InscriptionBRC20Data
-
-	ApproveInfo *InscriptionBRC20SwapConditionalApproveInfo
-}
-
-func NewConditionalApproveEvent(senderPkScript, receiverPkScript string, amount, balance *decimal.Decimal,
-	data *InscriptionBRC20Data, approveInfo *InscriptionBRC20SwapConditionalApproveInfo,
-	transferInscriptionId, transferMax string) (event *ConditionalApproveEvent) {
-
-	fromData := *approveInfo.Data
-	fromData.PkScript = senderPkScript
-	toData := *data
-	toData.PkScript = receiverPkScript
-
-	// 一开始直接退回
-	return &ConditionalApproveEvent{
-		Module:                approveInfo.Module,
-		Tick:                  approveInfo.Tick,
-		TransferInscriptionId: transferInscriptionId,
-		TransferMax:           transferMax,
-		From:                  senderPkScript,
-		To:                    receiverPkScript,
-		Amount:                amount,
-		Balance:               balance,
-
-		FromData: fromData,
-		ToData:   toData,
-
-		ApproveInfo: approveInfo,
-	}
-}
-
 // module state
 type BRC20ModuleSwapInfo struct {
-	UpdateHeight uint32
-
 	ID                string // module id
 	Name              string // module name
 	DeployerPkScript  string // deployer
@@ -222,8 +127,7 @@ type BRC20ModuleSwapInfo struct {
 
 	// swap
 	// lp token balance of address in module [pool][address]balance
-	LPTokenUsersBalanceMap        map[string]map[string]*decimal.Decimal
-	LPTokenUsersBalanceUpdatedMap map[string]struct{} // set if update
+	LPTokenUsersBalanceMap map[string]map[string]*decimal.Decimal
 
 	// lp token of users in module [address][pool]balance
 	UsersLPTokenBalanceMap map[string]map[string]*decimal.Decimal
@@ -231,13 +135,6 @@ type BRC20ModuleSwapInfo struct {
 	// swap total balance
 	// total balance of pool in module [pool]balanceData
 	SwapPoolTotalBalanceDataMap map[string]*BRC20ModulePoolTotalBalance
-
-	// module deposit/withdraw state [tick]balanceData
-	ConditionalApproveStateBalanceDataMap map[string]*BRC20ModuleConditionalApproveStateBalance
-	// runtime for approve
-	ThisTxId                            string
-	TransferStatesForConditionalApprove []*TransferStateForConditionalApprove
-	ApproveStatesForConditionalApprove  []*ApproveStateForConditionalApprove
 }
 
 func (m *BRC20ModuleSwapInfo) DeepCopy() (copy *BRC20ModuleSwapInfo) {
@@ -269,8 +166,7 @@ func (m *BRC20ModuleSwapInfo) DeepCopy() (copy *BRC20ModuleSwapInfo) {
 
 		// swap
 		// lp token balance of address in module [pair][address]balance
-		LPTokenUsersBalanceMap:        make(map[string]map[string]*decimal.Decimal, 0),
-		LPTokenUsersBalanceUpdatedMap: make(map[string]struct{}, 0),
+		LPTokenUsersBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
 
 		// lp token of users in module [address][pair]balance
 		UsersLPTokenBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
@@ -278,8 +174,6 @@ func (m *BRC20ModuleSwapInfo) DeepCopy() (copy *BRC20ModuleSwapInfo) {
 		// swap total balance
 		// total balance of pool in module [pair]balanceData
 		SwapPoolTotalBalanceDataMap: make(map[string]*BRC20ModulePoolTotalBalance, 0),
-
-		ConditionalApproveStateBalanceDataMap: make(map[string]*BRC20ModuleConditionalApproveStateBalance, 0),
 	}
 
 	for _, h := range m.History {
@@ -320,7 +214,7 @@ func (m *BRC20ModuleSwapInfo) DeepCopy() (copy *BRC20ModuleSwapInfo) {
 	for address, dataMap := range m.UsersLPTokenBalanceMap {
 		dataMapCopy := make(map[string]*decimal.Decimal, 0)
 		for pair, balance := range dataMap {
-			dataMapCopy[pair] = decimal.NewDecimalCopy(balance)
+			dataMapCopy[pair] = balance
 		}
 		copy.UsersLPTokenBalanceMap[address] = dataMapCopy
 	}
@@ -338,19 +232,6 @@ func (m *BRC20ModuleSwapInfo) DeepCopy() (copy *BRC20ModuleSwapInfo) {
 		copy.SwapPoolTotalBalanceDataMap[pair] = balance.DeepCopy()
 	}
 
-	// swap deposit/approve state balance
-	for tick, balance := range m.ConditionalApproveStateBalanceDataMap {
-		copy.ConditionalApproveStateBalanceDataMap[tick] = balance.DeepCopy()
-	}
-
-	// runtime for approve
-	copy.ThisTxId = m.ThisTxId
-	for _, v := range m.TransferStatesForConditionalApprove {
-		copy.TransferStatesForConditionalApprove = append(copy.TransferStatesForConditionalApprove, v.DeepCopy())
-	}
-	for _, v := range m.ApproveStatesForConditionalApprove {
-		copy.ApproveStatesForConditionalApprove = append(copy.ApproveStatesForConditionalApprove, v.DeepCopy())
-	}
 	return copy
 }
 
@@ -367,7 +248,6 @@ func (m *BRC20ModuleSwapInfo) CherryPick(pickUsersPkScript, pickTokensTick, pick
 		GasTick:     m.GasTick,
 
 		// runtime for commit
-		CommitInvalidMap: make(map[string]struct{}, 0),
 		CommitIdChainMap: make(map[string]struct{}, 0),
 		CommitIdMap:      make(map[string]struct{}, 0),
 
@@ -381,8 +261,7 @@ func (m *BRC20ModuleSwapInfo) CherryPick(pickUsersPkScript, pickTokensTick, pick
 
 		// swap
 		// lp token balance of address in module [pair][address]balance
-		LPTokenUsersBalanceMap:        make(map[string]map[string]*decimal.Decimal, 0),
-		LPTokenUsersBalanceUpdatedMap: make(map[string]struct{}, 0),
+		LPTokenUsersBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
 
 		// lp token of users in module [address][pair]balance
 		UsersLPTokenBalanceMap: make(map[string]map[string]*decimal.Decimal, 0),
@@ -390,8 +269,6 @@ func (m *BRC20ModuleSwapInfo) CherryPick(pickUsersPkScript, pickTokensTick, pick
 		// swap total balance
 		// total balance of pool in module [pair]balanceData
 		SwapPoolTotalBalanceDataMap: make(map[string]*BRC20ModulePoolTotalBalance, 0),
-
-		ConditionalApproveStateBalanceDataMap: make(map[string]*BRC20ModuleConditionalApproveStateBalance, 0),
 	}
 
 	for k := range m.CommitIdChainMap {
@@ -422,7 +299,7 @@ func (m *BRC20ModuleSwapInfo) CherryPick(pickUsersPkScript, pickTokensTick, pick
 	for address, dataMap := range m.UsersLPTokenBalanceMap {
 		dataMapCopy := make(map[string]*decimal.Decimal, 0)
 		for pair, balance := range dataMap {
-			dataMapCopy[pair] = decimal.NewDecimalCopy(balance)
+			dataMapCopy[pair] = balance
 		}
 		copy.UsersLPTokenBalanceMap[address] = dataMapCopy
 	}
@@ -445,17 +322,6 @@ func (m *BRC20ModuleSwapInfo) CherryPick(pickUsersPkScript, pickTokensTick, pick
 	return copy
 }
 
-func (moduleInfo *BRC20ModuleSwapInfo) GetTickConditionalApproveStateBalance(ticker string) (tokenBalance *BRC20ModuleConditionalApproveStateBalance) {
-	uniqueLowerTicker := strings.ToLower(ticker)
-
-	stateBalance, ok := moduleInfo.ConditionalApproveStateBalanceDataMap[uniqueLowerTicker]
-	if !ok {
-		stateBalance = &BRC20ModuleConditionalApproveStateBalance{Tick: ticker}
-		moduleInfo.ConditionalApproveStateBalanceDataMap[uniqueLowerTicker] = stateBalance
-	}
-	return stateBalance
-}
-
 func (moduleInfo *BRC20ModuleSwapInfo) GetUserTokenBalance(ticker, userPkScript string) (tokenBalance *BRC20ModuleTokenBalance) {
 	uniqueLowerTicker := strings.ToLower(ticker)
 	// get user's tokens to update
@@ -472,7 +338,7 @@ func (moduleInfo *BRC20ModuleSwapInfo) GetUserTokenBalance(ticker, userPkScript 
 		usersTokens[uniqueLowerTicker] = tokenBalance
 	} else {
 		tokenBalance = tb
-		return tokenBalance // fixme: may missing tokenUsers
+		return tokenBalance
 	}
 
 	// set token's users
@@ -485,131 +351,8 @@ func (moduleInfo *BRC20ModuleSwapInfo) GetUserTokenBalance(ticker, userPkScript 
 	return tokenBalance
 }
 
-// Generate matching approve events within the transaction when a transfer inscription transfer event occurs.
-func (moduleInfo *BRC20ModuleSwapInfo) GenerateApproveEventsByTransfer(transState *TransferStateForConditionalApprove) (events []*ConditionalApproveEvent) {
-
-	balanceAmt := transState.Balance
-	for _, apprState := range moduleInfo.ApproveStatesForConditionalApprove {
-		// skip tick miss match
-		if apprState.Tick != transState.Tick {
-			continue
-		}
-		// skip to other user
-		if apprState.Owner != transState.To {
-			continue
-		}
-		// skip 0 approve balance
-		if apprState.Balance.Sign() == 0 {
-			continue
-		}
-		// skip 0 transfer balance
-		if balanceAmt.Sign() == 0 {
-			break
-		}
-
-		if apprState.Balance.Cmp(balanceAmt) <= 0 {
-			balanceAmt = balanceAmt.Sub(apprState.Balance)
-
-			senderPkScript := apprState.Owner
-			receiverPkScript := transState.From
-			event := NewConditionalApproveEvent(senderPkScript, receiverPkScript, apprState.Balance, nil, apprState.ToData, apprState.ApproveInfo, transState.InscriptionId, transState.Max)
-			events = append(events, event)
-			log.Printf("generate new approve event by transfer. rest match. id: %s", transState.InscriptionId)
-			log.Printf("generate new approve event. amt: %s", apprState.Balance.String())
-			apprState.Balance = nil
-			continue
-		} else {
-			apprState.Balance = apprState.Balance.Sub(balanceAmt)
-
-			senderPkScript := apprState.Owner
-			receiverPkScript := transState.From
-			event := NewConditionalApproveEvent(senderPkScript, receiverPkScript, balanceAmt, apprState.Balance, apprState.ToData, apprState.ApproveInfo, transState.InscriptionId, transState.Max)
-			events = append(events, event)
-			log.Printf("generate new approve event by transfer. partial match. id: %s", transState.InscriptionId)
-			log.Printf("generate new approve event. amt: %s", balanceAmt.String())
-			balanceAmt = nil
-			break
-		}
-	}
-	if balanceAmt.Sign() > 0 {
-		transState.Balance = balanceAmt
-		moduleInfo.TransferStatesForConditionalApprove = append(moduleInfo.TransferStatesForConditionalApprove, transState)
-	}
-
-	return events
-}
-
-// Generate a matching approve event within the transaction when an approve inscription transfer event occurs.
-func (moduleInfo *BRC20ModuleSwapInfo) GenerateApproveEventsByApprove(owner string, balance *decimal.Decimal,
-	data *InscriptionBRC20Data, approveInfo *InscriptionBRC20SwapConditionalApproveInfo) (events []*ConditionalApproveEvent) {
-
-	balanceAmt := decimal.NewDecimalCopy(balance)
-	apprState := &ApproveStateForConditionalApprove{
-		Tick:    approveInfo.Tick,
-		Owner:   owner,
-		Balance: balanceAmt,
-
-		// fixme: object
-		Module:      approveInfo.Module,
-		ApproveInfo: approveInfo,
-		ToData:      data,
-	}
-
-	for _, transState := range moduleInfo.TransferStatesForConditionalApprove {
-		// approve balance
-		if balanceAmt.Sign() == 0 {
-			break
-		}
-
-		if transState.Tick != apprState.Tick {
-			continue
-		}
-		if transState.To != apprState.Owner {
-			continue
-		}
-
-		if transState.Balance.Sign() == 0 {
-			continue
-		}
-
-		if transState.Balance.Cmp(balanceAmt) <= 0 {
-			balanceAmt = balanceAmt.Sub(transState.Balance)
-
-			senderPkScript := owner
-			receiverPkScript := transState.From
-			event := NewConditionalApproveEvent(senderPkScript, receiverPkScript, transState.Balance, balanceAmt, data, approveInfo, transState.InscriptionId, transState.Max)
-			events = append(events, event)
-			log.Printf("generate new approve event by cond. rest match. id: %s", transState.InscriptionId)
-			log.Printf("generate new approve event. amt: %s", transState.Balance.String())
-			transState.Balance = nil
-			continue
-		} else {
-			transState.Balance = transState.Balance.Sub(balanceAmt)
-
-			senderPkScript := owner
-			receiverPkScript := transState.From
-			event := NewConditionalApproveEvent(senderPkScript, receiverPkScript, balanceAmt, nil, data, approveInfo, transState.InscriptionId, transState.Max)
-
-			events = append(events, event)
-			log.Printf("generate new approve event by cond. partial match. id: %s", transState.InscriptionId)
-			log.Printf("generate new approve event. amt: %s", balanceAmt.String())
-			balanceAmt = nil
-			break
-		}
-	}
-	// Remaining approve, written into state waiting for subsequent deduction
-	if balanceAmt.Sign() > 0 {
-		apprState.Balance = balanceAmt
-		moduleInfo.ApproveStatesForConditionalApprove = append(moduleInfo.ApproveStatesForConditionalApprove, apprState)
-	}
-
-	return events
-}
-
 // state of address for each tick, (balance and history)
 type BRC20ModuleTokenBalance struct {
-	UpdateHeight uint32
-
 	Tick     string
 	PkScript string
 
@@ -618,16 +361,14 @@ type BRC20ModuleTokenBalance struct {
 	ModuleAccountBalanceSafe *decimal.Decimal
 
 	// with unconfirmed balance
-	SwapAccountBalance     *decimal.Decimal
-	AvailableBalanceSafe   *decimal.Decimal
-	AvailableBalance       *decimal.Decimal
-	ApproveableBalance     *decimal.Decimal
-	CondApproveableBalance *decimal.Decimal
-	ReadyToWithdrawAmount  *decimal.Decimal
+	SwapAccountBalance    *decimal.Decimal
+	AvailableBalanceSafe  *decimal.Decimal
+	AvailableBalance      *decimal.Decimal
+	ApproveableBalance    *decimal.Decimal
+	ReadyToWithdrawAmount *decimal.Decimal
 
-	ValidConditionalApproveMap map[string]*InscriptionBRC20Data
-	ValidApproveMap            map[string]*InscriptionBRC20Data
-	ReadyToWithdrawMap         map[string]*InscriptionBRC20Data // ready to use, but inscription may invalid(depends on available b)
+	ValidApproveMap    map[uint64]*InscriptionBRC20Data
+	ReadyToWithdrawMap map[uint64]*InscriptionBRC20Data // ready to use, but inscription may invalid(depends on available b)
 
 	History []*BRC20ModuleHistory
 }
@@ -638,8 +379,7 @@ func (b *BRC20ModuleTokenBalance) String() string {
 
 func (bal *BRC20ModuleTokenBalance) ModuleBalance() *decimal.Decimal {
 	return bal.AvailableBalance.Add(
-		bal.ApproveableBalance).Add(
-		bal.CondApproveableBalance)
+		bal.ApproveableBalance)
 }
 
 func (in *BRC20ModuleTokenBalance) DeepCopy() *BRC20ModuleTokenBalance {
@@ -647,27 +387,21 @@ func (in *BRC20ModuleTokenBalance) DeepCopy() *BRC20ModuleTokenBalance {
 		Tick:     in.Tick,
 		PkScript: in.PkScript,
 
-		SwapAccountBalanceSafe:   decimal.NewDecimalCopy(in.SwapAccountBalanceSafe),
-		ModuleAccountBalanceSafe: decimal.NewDecimalCopy(in.ModuleAccountBalanceSafe),
+		SwapAccountBalanceSafe:   in.SwapAccountBalanceSafe,
+		ModuleAccountBalanceSafe: in.ModuleAccountBalanceSafe,
 
-		SwapAccountBalance: decimal.NewDecimalCopy(in.SwapAccountBalance),
+		SwapAccountBalance: in.SwapAccountBalance,
 
-		AvailableBalanceSafe: decimal.NewDecimalCopy(in.AvailableBalanceSafe),
-		AvailableBalance:     decimal.NewDecimalCopy(in.AvailableBalance),
+		AvailableBalanceSafe: in.AvailableBalanceSafe,
+		AvailableBalance:     in.AvailableBalance,
 
-		ApproveableBalance:     decimal.NewDecimalCopy(in.ApproveableBalance),
-		CondApproveableBalance: decimal.NewDecimalCopy(in.CondApproveableBalance),
-		ReadyToWithdrawAmount:  decimal.NewDecimalCopy(in.ReadyToWithdrawAmount),
+		ApproveableBalance:    in.ApproveableBalance,
+		ReadyToWithdrawAmount: in.ReadyToWithdrawAmount,
 
-		ValidConditionalApproveMap: make(map[string]*InscriptionBRC20Data, len(in.ValidConditionalApproveMap)),
-		ValidApproveMap:            make(map[string]*InscriptionBRC20Data, len(in.ValidApproveMap)),
-		ReadyToWithdrawMap:         make(map[string]*InscriptionBRC20Data, len(in.ReadyToWithdrawMap)),
+		ValidApproveMap:    make(map[uint64]*InscriptionBRC20Data, len(in.ValidApproveMap)),
+		ReadyToWithdrawMap: make(map[uint64]*InscriptionBRC20Data, len(in.ReadyToWithdrawMap)),
 	}
 
-	for k, v := range in.ValidConditionalApproveMap {
-		data := *v
-		tb.ValidConditionalApproveMap[k] = &data
-	}
 	for k, v := range in.ValidApproveMap {
 		data := *v
 		tb.ValidApproveMap[k] = &data
@@ -691,25 +425,22 @@ func (in *BRC20ModuleTokenBalance) CherryPick() *BRC20ModuleTokenBalance {
 		Tick:     in.Tick,
 		PkScript: in.PkScript,
 
-		SwapAccountBalanceSafe:   decimal.NewDecimalCopy(in.SwapAccountBalanceSafe),
-		ModuleAccountBalanceSafe: decimal.NewDecimalCopy(in.ModuleAccountBalanceSafe),
+		SwapAccountBalanceSafe:   in.SwapAccountBalanceSafe,
+		ModuleAccountBalanceSafe: in.ModuleAccountBalanceSafe,
 
-		SwapAccountBalance: decimal.NewDecimalCopy(in.SwapAccountBalance),
+		SwapAccountBalance: in.SwapAccountBalance,
 
-		AvailableBalanceSafe: decimal.NewDecimalCopy(in.AvailableBalanceSafe),
-		AvailableBalance:     decimal.NewDecimalCopy(in.AvailableBalance),
+		AvailableBalanceSafe: in.AvailableBalanceSafe,
+		AvailableBalance:     in.AvailableBalance,
 
-		ApproveableBalance:     decimal.NewDecimalCopy(in.ApproveableBalance),
-		CondApproveableBalance: decimal.NewDecimalCopy(in.CondApproveableBalance),
-		ReadyToWithdrawAmount:  decimal.NewDecimalCopy(in.ReadyToWithdrawAmount),
+		ApproveableBalance:    in.ApproveableBalance,
+		ReadyToWithdrawAmount: in.ReadyToWithdrawAmount,
 	}
 	return tb
 }
 
 // state of address for each tick, (balance and history)
 type BRC20ModulePoolTotalBalance struct {
-	UpdateHeight uint32
-
 	Tick        [2]string
 	TickBalance [2]*decimal.Decimal
 	LpBalance   *decimal.Decimal
@@ -724,8 +455,8 @@ func (in *BRC20ModulePoolTotalBalance) DeepCopy() *BRC20ModulePoolTotalBalance {
 		Tick:        in.Tick,
 		TickBalance: in.TickBalance,
 
-		LpBalance: decimal.NewDecimalCopy(in.LpBalance),
-		LastRootK: decimal.NewDecimalCopy(in.LastRootK),
+		LpBalance: in.LpBalance,
+		LastRootK: in.LastRootK,
 	}
 
 	for _, h := range in.History {
@@ -740,8 +471,8 @@ func (in *BRC20ModulePoolTotalBalance) CherryPick() *BRC20ModulePoolTotalBalance
 		Tick:        in.Tick,
 		TickBalance: in.TickBalance,
 
-		LpBalance: decimal.NewDecimalCopy(in.LpBalance),
-		LastRootK: decimal.NewDecimalCopy(in.LastRootK),
+		LpBalance: in.LpBalance,
+		LastRootK: in.LastRootK,
 	}
 	return tb
 }
@@ -751,33 +482,6 @@ type InscriptionBRC20SwapInfo struct {
 	Tick   string
 	Amount *decimal.Decimal
 	Data   *InscriptionBRC20Data
-}
-
-type InscriptionBRC20SwapConditionalApproveInfo struct {
-	UpdateHeight uint32
-
-	Module            string
-	Tick              string
-	Amount            *decimal.Decimal // current amt
-	Balance           *decimal.Decimal // current balance
-	HasMoved          bool             // has moved
-	OwnerPkScript     string           // owner
-	DelegatorPkScript string           // delegator
-	Data              *InscriptionBRC20Data
-}
-
-func (d *InscriptionBRC20SwapConditionalApproveInfo) DeepCopy() (copy *InscriptionBRC20SwapConditionalApproveInfo) {
-	copy = &InscriptionBRC20SwapConditionalApproveInfo{
-		Module:            d.Module,
-		Tick:              d.Tick,
-		Amount:            decimal.NewDecimalCopy(d.Amount),  // maybe no need copy
-		Balance:           decimal.NewDecimalCopy(d.Balance), // maybe no need copy
-		HasMoved:          d.HasMoved,
-		OwnerPkScript:     d.OwnerPkScript,
-		DelegatorPkScript: d.DelegatorPkScript,
-		Data:              d.Data,
-	}
-	return copy
 }
 
 // history inscription info

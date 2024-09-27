@@ -1,20 +1,16 @@
 package indexer
 
 import (
-	"bytes"
-	"container/list"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
-	"github.com/unisat-wallet/libbrc20-indexer/utils/bip322"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils/bip322"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -144,134 +140,4 @@ func GetLowerInnerPairNameByToken(token0, token1 string) (poolPair string) {
 		poolPair = fmt.Sprintf("%s%s%s", string([]byte{uint8(len(token0))}), token0, token1)
 	}
 	return poolPair
-}
-
-// GetEachItemLengthOfCommitJsonData Get the actual number of bytes occupied by obj in the data list
-func GetEachItemLengthOfCommitJsonData(body []byte) (results []uint64, err error) {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	const (
-		TOKEN_TYPE_OBJ = iota
-		TOKEN_TYPE_ARR
-	)
-	curType := -1
-	const (
-		TOKEN_VALUE_MAPKEY = iota
-		TOKEN_VALUE_MAPVALUE
-		TOKEN_VALUE_ARRAY_ELEMENT
-	)
-	curEle := -1
-
-	indentLevel := 0
-
-	stack := list.New()
-
-	setEleType := func() {
-		switch curType {
-		case TOKEN_TYPE_OBJ:
-			curEle = TOKEN_VALUE_MAPKEY
-		case TOKEN_TYPE_ARR:
-			curEle = TOKEN_VALUE_ARRAY_ELEMENT
-		}
-	}
-
-	readyDataProcess := false
-	startDataProcess := false
-	var lastPos uint64
-
-	for {
-		tok, err := decoder.Token()
-		// Return the next unprocessed token.
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-
-		offset := decoder.InputOffset()
-
-		switch tok := tok.(type) {
-		// Based on the token type, appropriate processing is performed.
-		case json.Delim:
-
-			switch tok {
-			case '{':
-
-				if indentLevel == 2 && readyDataProcess && startDataProcess {
-					// Step 3: Record start offset at '{' character.
-					lastPos = uint64(offset)
-				}
-
-				stack.PushBack(TOKEN_TYPE_OBJ)
-				curType = TOKEN_TYPE_OBJ
-				setEleType()
-				indentLevel += 1
-			case '}':
-
-				if indentLevel == 3 && readyDataProcess && startDataProcess {
-					// Step 4: Record length at '}' character.
-					results = append(results, uint64(offset)-lastPos+1)
-				}
-
-				stack.Remove(stack.Back())
-				if stack.Len() > 0 {
-					curType = stack.Back().Value.(int)
-					setEleType()
-				}
-				indentLevel -= 1
-			case '[':
-
-				if indentLevel == 1 && readyDataProcess && !startDataProcess {
-					// Step 2: Start formally counting after '['.
-					results = nil
-					startDataProcess = true
-				}
-
-				stack.PushBack(TOKEN_TYPE_ARR)
-				curType = TOKEN_TYPE_ARR
-				setEleType()
-				indentLevel += 1
-			case ']':
-
-				if indentLevel == 2 && readyDataProcess && startDataProcess {
-					// Step 5: End the statistics after ']'.
-					readyDataProcess = false
-					startDataProcess = false
-				}
-
-				stack.Remove(stack.Back())
-				if stack.Len() > 0 {
-					curType = stack.Back().Value.(int)
-					setEleType()
-				}
-				indentLevel -= 1
-			}
-
-		default:
-			switch curType {
-			case TOKEN_TYPE_OBJ:
-				switch curEle {
-				case TOKEN_VALUE_MAPKEY:
-
-					if indentLevel == 1 {
-						if tok == "data" {
-							// Step 1: Mark the data start, and initialize the marker and result variables.
-							results = nil
-							readyDataProcess = true
-							startDataProcess = false
-						} else {
-							// Step 6: Mark complete.
-							readyDataProcess = false
-							startDataProcess = false
-						}
-					}
-
-					curEle = TOKEN_VALUE_MAPVALUE
-				case TOKEN_VALUE_MAPVALUE:
-					curEle = TOKEN_VALUE_MAPKEY
-				}
-			}
-		}
-	}
-
-	return results, nil
 }

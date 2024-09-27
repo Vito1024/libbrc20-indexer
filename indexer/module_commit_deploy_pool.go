@@ -4,8 +4,8 @@ import (
 	"errors"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionDeployPool(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) error {

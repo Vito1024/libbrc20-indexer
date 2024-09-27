@@ -8,24 +8,22 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
-func DumpBRC20InputData(fname string, brc20Datas chan interface{}, hexBody bool) {
-	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
+func DumpBRC20InputData(fname string, brc20Datas []*model.InscriptionBRC20Data, hexBody bool) {
+	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Fatalf("open block index file failed, %s", err)
 		return
 	}
 	defer file.Close()
 
-	for dataIn := range brc20Datas {
-		data := dataIn.(*model.InscriptionBRC20Data)
-
+	for _, data := range brc20Datas {
 		var body, address string
 		if hexBody {
 			body = hex.EncodeToString(data.ContentBody)
@@ -38,9 +36,10 @@ func DumpBRC20InputData(fname string, brc20Datas chan interface{}, hexBody bool)
 			}
 		}
 
-		fmt.Fprintf(file, "%d %s %d %d %d %d %s %d %s %s %d %d %d\n",
-			data.Sequence,
-			utils.HashString([]byte(data.TxId)),
+		fmt.Fprintf(file, "%t %s %d %d %d %d %s %d %s %x %d %d %d %d\n",
+			data.IsTransfer,
+
+			hex.EncodeToString([]byte(data.TxId)),
 			data.Idx,
 			data.Vout,
 			data.Offset,
@@ -48,10 +47,11 @@ func DumpBRC20InputData(fname string, brc20Datas chan interface{}, hexBody bool)
 			address,
 			data.InscriptionNumber,
 			body,
-			hex.EncodeToString([]byte(data.CreateIdxKey)),
+			data.CreateIdxKey,
 			data.Height,
 			data.TxIdx,
 			data.BlockTime,
+			data.Sequence,
 		)
 	}
 }
@@ -63,7 +63,7 @@ func DumpTickerInfoMap(fname string,
 	tokenUsersBalanceData map[string]map[string]*model.BRC20TokenBalance,
 ) {
 
-	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
+	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Fatalf("open block index file failed, %s", err)
 		return
@@ -162,7 +162,7 @@ func DumpTickerInfoMap(fname string,
 func DumpModuleInfoMap(fname string,
 	modulesInfoMap map[string]*model.BRC20ModuleSwapInfo,
 ) {
-	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
+	file, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Fatalf("open module dump file failed, %s", err)
 		return
@@ -199,15 +199,14 @@ func DumpModuleInfoMap(fname string,
 			len(info.UsersLPTokenBalanceMap),
 		)
 
-		DumpModuleTickInfoMap(file, info.ConditionalApproveStateBalanceDataMap, info.TokenUsersBalanceDataMap, info.UsersTokenBalanceDataMap)
+		DumpModuleTickInfoMap(file, info.TokenUsersBalanceDataMap, info.UsersTokenBalanceDataMap)
 
 		DumpModuleSwapInfoMap(file, info.SwapPoolTotalBalanceDataMap, info.LPTokenUsersBalanceMap, info.UsersLPTokenBalanceMap)
 	}
 }
 
-func DumpModuleTickInfoMap(file *os.File, condStateBalanceDataMap map[string]*model.BRC20ModuleConditionalApproveStateBalance,
-	inscriptionsTickerInfoMap, userTokensBalanceData map[string]map[string]*model.BRC20ModuleTokenBalance,
-) {
+func DumpModuleTickInfoMap(file *os.File,
+	inscriptionsTickerInfoMap, userTokensBalanceData map[string]map[string]*model.BRC20ModuleTokenBalance) {
 
 	var allTickers []string
 	for ticker := range inscriptionsTickerInfoMap {
@@ -253,14 +252,13 @@ func DumpModuleTickInfoMap(file *os.File, condStateBalanceDataMap map[string]*mo
 			if err != nil {
 				address = hex.EncodeToString([]byte(balanceData.PkScript))
 			}
-			fmt.Fprintf(file, "  %s %s nHistory: %d, bnModule: %s, bnAvai: %s, bnSwap: %s, bnCond: %s, nToken: %d",
+			fmt.Fprintf(file, "  %s %s nHistory: %d, bnModule: %s, bnAvai: %s, bnSwap: %s, nToken: %d",
 				ticker,
 				address,
 				len(balanceData.History),
 				balanceData.ModuleBalance().String(),
 				balanceData.AvailableBalance.String(),
 				balanceData.SwapAccountBalance.String(),
-				balanceData.CondApproveableBalance.String(),
 				len(userTokensBalanceData[string(balanceData.PkScript)]),
 			)
 
@@ -272,29 +270,6 @@ func DumpModuleTickInfoMap(file *os.File, condStateBalanceDataMap map[string]*mo
 			}
 			fmt.Fprintf(file, "\n")
 		}
-	}
-
-	fmt.Fprintf(file, "\n")
-
-	// condStateBalanceDataMap
-	for _, ticker := range allTickers {
-		stateBalance, ok := condStateBalanceDataMap[ticker]
-		if !ok {
-			fmt.Fprintf(file, "  module deposit/withdraw state: %s - \n", ticker)
-			continue
-		}
-
-		fmt.Fprintf(file, "  module deposit/withdraw state: %s deposit: %s, match: %s, new: %s, cancel: %s, wait: %s\n",
-			ticker,
-			stateBalance.BalanceDeposite.String(),
-			stateBalance.BalanceApprove.String(),
-			stateBalance.BalanceNewApprove.String(),
-			stateBalance.BalanceCancelApprove.String(),
-
-			stateBalance.BalanceNewApprove.Sub(
-				stateBalance.BalanceApprove).Sub(
-				stateBalance.BalanceCancelApprove).String(),
-		)
 	}
 
 	fmt.Fprintf(file, "\n")

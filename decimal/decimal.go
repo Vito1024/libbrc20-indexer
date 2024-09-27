@@ -47,13 +47,6 @@ func NewDecimal(v uint64, p uint) *Decimal {
 	return &Decimal{Precition: p, Value: new(big.Int).SetUint64(v)}
 }
 
-func NewDecimalCopy(other *Decimal) *Decimal {
-	if other == nil {
-		return nil
-	}
-	return &Decimal{Precition: other.Precition, Value: new(big.Int).Set(other.Value)}
-}
-
 // NewDecimalFromString creates a Decimal instance from a string
 func NewDecimalFromString(s string, maxPrecision int) (*Decimal, error) {
 	if s == "" {
@@ -265,4 +258,12 @@ func (d *Decimal) Float64() float64 {
 		return -f
 	}
 	return f
+}
+
+func (d *Decimal) Uint64() uint64 {
+	if d == nil {
+		return 0
+	}
+
+	return d.Value.Uint64()
 }

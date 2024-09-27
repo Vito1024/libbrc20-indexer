@@ -3,7 +3,7 @@ package model
 import (
 	"encoding/binary"
 
-	scriptDecoder "github.com/unisat-wallet/libbrc20-indexer/utils/script"
+	scriptDecoder "github.com/unisat-wallet/libbrc20-indexer-fractal/utils/script"
 )
 
 type BRC20HistoryBase struct {

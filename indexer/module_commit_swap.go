@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
 )
 
 // ProcessCommitFunctionSwap
@@ -22,13 +20,8 @@ import (
 //	amountIn = (reserveIn * amountOut * 1000)/((reserveOut - amountOut) * 997) + 1
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionSwap(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) (err error) {
 	token0, token1 := f.Params[0], f.Params[1]
-	if g.BestHeight < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		token0, token1, err = utils.DecodeTokensFromSwapPair(f.Params[0])
-		if err != nil {
-			return errors.New("func: swap poolPair invalid")
-		}
-	}
 	poolPair := GetLowerInnerPairNameByToken(token0, token1)
+
 	pool, ok := moduleInfo.SwapPoolTotalBalanceDataMap[poolPair]
 	if !ok {
 		return errors.New("swap: pool invalid")
@@ -44,33 +37,28 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSwap(moduleInfo *model.BRC20Mo
 	// log.Printf("[%s] pool before swap [%s] %s: %s, %s: %s, lp: %s", moduleInfo.ID, poolPair, pool.Tick[0], pool.TickBalance[0], pool.Tick[1], pool.TickBalance[1], pool.LpBalance)
 	log.Printf("pool swap params: %v", f.Params)
 
-	offset := 0
-	if g.BestHeight >= conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		offset = 1
-	}
-
 	var tokenIn, tokenInAmtStr, tokenOut, tokenOutAmtStr string
-	derection := f.Params[3+offset]
+	derection := f.Params[4]
 	if derection == "exactIn" {
-		tokenIn = f.Params[1+offset]
-		tokenInAmtStr = f.Params[2+offset]
+		tokenIn = f.Params[2]
+		tokenInAmtStr = f.Params[3]
 
 		if tokenIn == token0 {
 			tokenOut = token1
 		} else {
 			tokenOut = token0
 		}
-		tokenOutAmtStr = f.Params[4+offset]
+		tokenOutAmtStr = f.Params[5]
 	} else if derection == "exactOut" {
-		tokenOut = f.Params[1+offset]
-		tokenOutAmtStr = f.Params[2+offset]
+		tokenOut = f.Params[2]
+		tokenOutAmtStr = f.Params[3]
 
 		if tokenOut == token0 {
 			tokenIn = token1
 		} else {
 			tokenIn = token0
 		}
-		tokenInAmtStr = f.Params[4+offset]
+		tokenInAmtStr = f.Params[5]
 	}
 
 	tokenInAmt, _ := g.CheckTickVerify(tokenIn, tokenInAmtStr)
@@ -91,7 +79,7 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSwap(moduleInfo *model.BRC20Mo
 	// Slippage check
 	// exactIn:  1/(1+slippage) * quoteAmount
 	// exactOut:  (1+slippage) * quoteAmount
-	slippageAmtStr := f.Params[5+offset]
+	slippageAmtStr := f.Params[6]
 	slippageAmt, _ := decimal.NewDecimalFromString(slippageAmtStr, 3)
 
 	feeRateSwapAmt, _ := CheckAmountVerify(moduleInfo.FeeRateSwap, 3)
@@ -142,9 +130,6 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSwap(moduleInfo *model.BRC20Mo
 	tokenInBalance := moduleInfo.GetUserTokenBalance(tokenIn, f.PkScript)
 	tokenOutBalance := moduleInfo.GetUserTokenBalance(tokenOut, f.PkScript)
 
-	tokenInBalance.UpdateHeight = g.BestHeight
-	tokenOutBalance.UpdateHeight = g.BestHeight
-
 	if tokenInBalance.SwapAccountBalance.Cmp(tokenInAmt) < 0 {
 		return errors.New(fmt.Sprintf("swap[%s]: user tokenIn balance insufficient: %s < %s",
 			f.ID,
@@ -155,11 +140,11 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSwap(moduleInfo *model.BRC20Mo
 	// swap sub
 	pool.TickBalance[tokenOutIdx] = pool.TickBalance[tokenOutIdx].Sub(amountOut)
 	tokenInBalance.SwapAccountBalance = tokenInBalance.SwapAccountBalance.Sub(amountIn)
+	tokenInBalance.SwapAccountBalanceSafe = tokenInBalance.SwapAccountBalanceSafe.Sub(amountIn)
 	// swap add
 	pool.TickBalance[tokenInIdx] = pool.TickBalance[tokenInIdx].Add(amountIn)
 	tokenOutBalance.SwapAccountBalance = tokenOutBalance.SwapAccountBalance.Add(amountOut)
-
-	pool.UpdateHeight = g.BestHeight
+	tokenOutBalance.SwapAccountBalanceSafe = tokenOutBalance.SwapAccountBalanceSafe.Add(amountOut)
 
 	// log.Printf("[%s] pool after swap [%s] %s: %s, %s: %s, lp: %s", moduleInfo.ID, poolPair, pool.Tick[0], pool.TickBalance[0], pool.Tick[1], pool.TickBalance[1], pool.LpBalance)
 	return nil

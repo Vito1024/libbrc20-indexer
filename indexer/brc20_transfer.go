@@ -5,14 +5,14 @@ import (
 	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
-func (g *BRC20ModuleIndexer) GetTransferInfoByKey(createIdxKey string) (
+func (g *BRC20ModuleIndexer) GetTransferInfoByKey(createIdxKey uint64) (
 	transferInfo *model.InscriptionBRC20TickInfo, isInvalid bool) {
 	var ok bool
 	// transfer
@@ -34,14 +34,14 @@ func (g *BRC20ModuleIndexer) GetTransferInfoByKey(createIdxKey string) (
 	return transferInfo, isInvalid
 }
 
-func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, transferInfo *model.InscriptionBRC20TickInfo, isInvalid bool) error {
+func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, transferInfo *model.InscriptionBRC20TickInfo, latestHeight int, isInvalid bool) error {
 	// ticker
 	uniqueLowerTicker := strings.ToLower(transferInfo.Tick)
 	tokenInfo, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]
 	if !ok {
-		log.Printf("ProcessBRC20Transfer send transfer, but ticker invalid. txid: %s",
-			utils.HashString([]byte(data.TxId)),
-		)
+		// log.Printf("ProcessBRC20Transfer send transfer, but ticker invalid. txid: %s",
+		// 	hex.EncodeToString(utils.ReverseBytes([]byte(data.TxId))),
+		// )
 		return errors.New("transfer, invalid ticker")
 	}
 
@@ -60,29 +60,25 @@ func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, t
 
 		tokenInfo.History = append(tokenInfo.History, history)
 		tokenInfo.HistoryTransfer = append(tokenInfo.HistoryTransfer, history)
-		if !isInvalid {
-			// all history
-			g.AllHistory = append(g.AllHistory, history)
-		}
 	}
 
 	// from
 	// get user's tokens to update
 	fromUserTokens, ok := g.UserTokensBalanceData[senderPkScript]
 	if !ok {
-		log.Printf("ProcessBRC20Transfer send from user missing. height: %d, txidx: %d",
-			data.Height,
-			data.TxIdx,
-		)
+		// log.Printf("ProcessBRC20Transfer send from user missing. height: %d, txidx: %d",
+		// 	data.Height,
+		// 	data.TxIdx,
+		// )
 		return errors.New("transfer, invalid from data")
 	}
 	// get tokenBalance to update
 	fromTokenBalance, ok := fromUserTokens[uniqueLowerTicker]
 	if !ok {
-		log.Printf("ProcessBRC20Transfer send from ticker missing. height: %d, txidx: %d",
-			data.Height,
-			data.TxIdx,
-		)
+		// log.Printf("ProcessBRC20Transfer send from ticker missing. height: %d, txidx: %d",
+		// 	data.Height,
+		// 	data.TxIdx,
+		// )
 		return errors.New("transfer, invalid from balance")
 	}
 
@@ -101,16 +97,14 @@ func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, t
 	}
 
 	if _, ok := fromTokenBalance.ValidTransferMap[data.CreateIdxKey]; !ok {
-		log.Printf("ProcessBRC20Transfer send from transfer missing(dup transfer?). height: %d, txidx: %d",
-			data.Height,
-			data.TxIdx,
-		)
+		// log.Printf("ProcessBRC20Transfer send from transfer missing(dup transfer?). height: %d, txidx: %d",
+		// 	data.Height,
+		// 	data.TxIdx,
+		// )
 		return errors.New("transfer, invalid transfer")
 	}
 
 	// set from
-	fromTokenBalance.UpdateHeight = data.Height
-
 	fromTokenBalance.TransferableBalance = fromTokenBalance.TransferableBalance.Sub(transferInfo.Amount)
 	delete(fromTokenBalance.ValidTransferMap, data.CreateIdxKey)
 
@@ -129,8 +123,6 @@ func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, t
 	// get user's tokens to update
 	tokenBalance := g.GetUserTokenBalance(transferInfo.Tick, receiverPkScript)
 	// set to
-	tokenBalance.UpdateHeight = data.Height
-
 	if data.BlockTime > 0 {
 		tokenBalance.AvailableBalanceSafe = tokenBalance.AvailableBalanceSafe.Add(transferInfo.Amount)
 	}
@@ -153,26 +145,6 @@ func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, t
 	}
 
 	////////////////////////////////////////////////////////////////
-	// skip module deposit if self mint for now
-	if tokenInfo.Deploy.SelfMint {
-		return nil
-	}
-
-	////////////////////////////////////////////////////////////////
-	// module conditional approve (black withdraw)
-	if g.ThisTxId != data.TxId {
-		g.TxStaticTransferStatesForConditionalApprove = nil
-		g.ThisTxId = data.TxId
-	}
-
-	if data.Height < conf.ENABLE_SWAP_WITHDRAW_HEIGHT {
-		inscriptionId := transferInfo.Meta.GetInscriptionId()
-		events := g.GenerateApproveEventsByTransfer(inscriptionId, transferInfo.Tick, senderPkScript, receiverPkScript, transferInfo.Amount)
-		if err := g.ProcessConditionalApproveEvents(events); err != nil {
-			return err
-		}
-	}
-	////////////////////////////////////////////////////////////////
 	// module deposit
 	moduleId, ok := utils.GetModuleFromScript([]byte(receiverPkScript))
 	if !ok {
@@ -192,16 +164,11 @@ func (g *BRC20ModuleIndexer) ProcessTransfer(data *model.InscriptionBRC20Data, t
 	// get user's tokens to update
 
 	moduleTokenBalance := moduleInfo.GetUserTokenBalance(transferInfo.Tick, senderPkScript)
-	moduleTokenBalance.UpdateHeight = data.Height
 	// set module deposit
-	if data.BlockTime > 0 { // how many confirmes ok
+	if (latestHeight - int(data.Height) + 1) >= conf.BRC20_MODULE_SAFE_CONFIRMATION { // how many confirmes ok
 		moduleTokenBalance.SwapAccountBalanceSafe = moduleTokenBalance.SwapAccountBalanceSafe.Add(transferInfo.Amount)
 	}
 	moduleTokenBalance.SwapAccountBalance = moduleTokenBalance.SwapAccountBalance.Add(transferInfo.Amount)
-
-	// record state
-	stateBalance := moduleInfo.GetTickConditionalApproveStateBalance(transferInfo.Tick)
-	stateBalance.BalanceDeposite = stateBalance.BalanceDeposite.Add(transferInfo.Amount)
 
 	return nil
 }
@@ -216,7 +183,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeTransfer(data *model.InscriptionBRC2
 	uniqueLowerTicker, err := utils.GetValidUniqueLowerTickerTicker(body.BRC20Tick)
 	if err != nil {
 		return nil
-		// return errors.New("transfer, tick length not 4 or 5")
+		// return errors.New("transfer, tick length not between 6 and 12")
 	}
 
 	tokenInfo, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]
@@ -237,7 +204,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeTransfer(data *model.InscriptionBRC2
 		// return errors.New("transfer, invalid amount(range)")
 	}
 
-	balanceTransfer := decimal.NewDecimalCopy(amt)
+	balanceTransfer := amt
 
 	// get user's tokens to update
 	var userTokens map[string]*model.BRC20TokenBalance
@@ -273,41 +240,10 @@ func (g *BRC20ModuleIndexer) ProcessInscribeTransfer(data *model.InscriptionBRC2
 	transferInfo.Amount = balanceTransfer
 	transferInfo.Meta = data
 
-	if g.EnableHistory {
-		history := g.HistoryCount
-		historyObj := model.NewBRC20History(constant.BRC20_HISTORY_TYPE_N_INSCRIBE_TRANSFER, true, false, transferInfo, tokenBalance, data)
-		// If use the safe version of the available balance, it will cause the unconfirmed balance to not be able to be used to create a valid transfer inscription.
-		if tokenBalance.AvailableBalance.Cmp(balanceTransfer) < 0 {
-			historyObj.Valid = false
-			// user history
-			tokenBalance.History = append(tokenBalance.History, history)
-			tokenBalance.HistoryInscribeTransfer = append(tokenBalance.HistoryInscribeTransfer, history)
-			// global history
-			tokenInfo.History = append(tokenInfo.History, history)
-			tokenInfo.HistoryInscribeTransfer = append(tokenInfo.HistoryInscribeTransfer, history)
-
-			userHistory := g.GetBRC20HistoryByUser(string(data.PkScript))
-			userHistory.History = append(userHistory.History, history)
-		} else {
-			historyObj.Valid = true
-			// user tick history
-			tokenBalance.History = append(tokenBalance.History, history)
-			tokenBalance.HistoryInscribeTransfer = append(tokenBalance.HistoryInscribeTransfer, history)
-			// user history
-			userHistory := g.GetBRC20HistoryByUser(string(data.PkScript))
-			userHistory.History = append(userHistory.History, history)
-			// global history
-			tokenInfo.History = append(tokenInfo.History, history)
-			tokenInfo.HistoryInscribeTransfer = append(tokenInfo.HistoryInscribeTransfer, history)
-			// all history
-			g.AllHistory = append(g.AllHistory, history)
-		}
-
-		g.UpdateHistoryHeightAndGetHistoryIndex(historyObj)
-	}
-
 	// If use the safe version of the available balance, it will cause the unconfirmed balance to not be able to be used to create a valid transfer inscription.
+	historyValid := true
 	if tokenBalance.AvailableBalance.Cmp(balanceTransfer) < 0 {
+		historyValid = false
 		g.InscriptionsInvalidTransferMap[data.CreateIdxKey] = transferInfo
 	} else {
 		// Update available balance
@@ -319,11 +255,31 @@ func (g *BRC20ModuleIndexer) ProcessInscribeTransfer(data *model.InscriptionBRC2
 		tokenBalance.TransferableBalance = tokenBalance.TransferableBalance.Add(balanceTransfer)
 
 		if tokenBalance.ValidTransferMap == nil {
-			tokenBalance.ValidTransferMap = make(map[string]*model.InscriptionBRC20TickInfo, 1)
+			tokenBalance.ValidTransferMap = make(map[uint64]*model.InscriptionBRC20TickInfo, 1)
 		}
 		tokenBalance.ValidTransferMap[data.CreateIdxKey] = transferInfo
 		g.InscriptionsValidTransferMap[data.CreateIdxKey] = transferInfo
 		g.InscriptionsValidBRC20DataMap[data.CreateIdxKey] = transferInfo.Data
+	}
+
+	if g.EnableHistory {
+		history := g.HistoryCount
+		historyObj := model.NewBRC20History(constant.BRC20_HISTORY_TYPE_N_INSCRIBE_TRANSFER, true, false, transferInfo, tokenBalance, data)
+		// If use the safe version of the available balance, it will cause the unconfirmed balance to not be able to be used to create a valid transfer inscription.
+
+		// user tick history
+		tokenBalance.History = append(tokenBalance.History, history)
+		tokenBalance.HistoryInscribeTransfer = append(tokenBalance.HistoryInscribeTransfer, history)
+		// user history
+		userHistory := g.GetBRC20HistoryByUser(string(data.PkScript))
+		userHistory.History = append(userHistory.History, history)
+		// global history
+		tokenInfo.History = append(tokenInfo.History, history)
+		tokenInfo.HistoryInscribeTransfer = append(tokenInfo.HistoryInscribeTransfer, history)
+
+		historyObj.Valid = historyValid
+
+		g.UpdateHistoryHeightAndGetHistoryIndex(historyObj)
 	}
 
 	return nil

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error {
@@ -21,7 +21,7 @@ func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error
 	uniqueLowerTicker, err := utils.GetValidUniqueLowerTickerTicker(body.BRC20Tick)
 	if err != nil {
 		return nil
-		// return errors.New("mint, tick length not 4 or 5")
+		// return errors.New("mint, tick length not between 6 and 12")
 	}
 	tokenInfo, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]
 	if !ok {
@@ -29,7 +29,7 @@ func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error
 		// return errors.New(fmt.Sprintf("mint %s, but tick not exist", body.BRC20Tick))
 	}
 	tinfo := tokenInfo.Deploy
-	if tinfo.SelfMint {
+	if tokenInfo.SelfMint {
 		if utils.DecodeInscriptionFromBin(data.Parent) != tinfo.GetInscriptionId() {
 			return errors.New(fmt.Sprintf("self mint %s, but parent invalid", body.BRC20Tick))
 		}
@@ -68,10 +68,8 @@ func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error
 	}
 
 	// update tinfo
-	tokenInfo.UpdateHeight = data.Height
-
 	// minted
-	balanceMinted := decimal.NewDecimalCopy(amt)
+	balanceMinted := amt
 	if tinfo.TotalMinted.Add(amt).Cmp(tinfo.Max) > 0 {
 		balanceMinted = tinfo.Max.Sub(tinfo.TotalMinted)
 	}
@@ -102,8 +100,6 @@ func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error
 	mintInfo.Amount = balanceMinted
 
 	// update tokenBalance
-	tokenBalance.UpdateHeight = data.Height
-
 	if data.BlockTime > 0 {
 		tokenBalance.AvailableBalanceSafe = tokenBalance.AvailableBalanceSafe.Add(balanceMinted)
 	}
@@ -127,9 +123,7 @@ func (g *BRC20ModuleIndexer) ProcessMint(data *model.InscriptionBRC20Data) error
 		// user address
 		userHistory := g.GetBRC20HistoryByUser(string(data.PkScript))
 		userHistory.History = append(userHistory.History, history)
-		// all history
-		g.AllHistory = append(g.AllHistory, history)
 	}
-	// g.InscriptionsValidBRC20DataMap[data.CreateIdxKey] = mintInfo.Data
+	g.InscriptionsValidBRC20DataMap[data.CreateIdxKey] = mintInfo.Data
 	return nil
 }

@@ -7,8 +7,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 // ProcessInscribeCommit inscribed a commit, but it has not taken effect yet.

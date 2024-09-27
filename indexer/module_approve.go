@@ -8,13 +8,14 @@ import (
 	"log"
 	"strings"
 
-	"github.com/unisat-wallet/libbrc20-indexer/constant"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/constant"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
-func (g *BRC20ModuleIndexer) GetApproveInfoByKey(createIdxKey string) (
+func (g *BRC20ModuleIndexer) GetApproveInfoByKey(createIdxKey uint64) (
 	approveInfo *model.InscriptionBRC20SwapInfo, isInvalid bool) {
 	var ok bool
 	// approve
@@ -30,7 +31,7 @@ func (g *BRC20ModuleIndexer) GetApproveInfoByKey(createIdxKey string) (
 	return approveInfo, isInvalid
 }
 
-func (g *BRC20ModuleIndexer) ProcessApprove(data *model.InscriptionBRC20Data, approveInfo *model.InscriptionBRC20SwapInfo, isInvalid bool) error {
+func (g *BRC20ModuleIndexer) ProcessApprove(data *model.InscriptionBRC20Data, approveInfo *model.InscriptionBRC20SwapInfo, latestHeight int, isInvalid bool) error {
 	// ticker
 	uniqueLowerTicker := strings.ToLower(approveInfo.Tick)
 	if _, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]; !ok {
@@ -99,8 +100,6 @@ func (g *BRC20ModuleIndexer) ProcessApprove(data *model.InscriptionBRC20Data, ap
 	tokenBalance := moduleInfo.GetUserTokenBalance(approveInfo.Tick, receiverPkScript)
 
 	// set from
-	fromTokenBalance.UpdateHeight = g.BestHeight
-
 	fromTokenBalance.ApproveableBalance = fromTokenBalance.ApproveableBalance.Sub(approveInfo.Amount)
 	delete(fromTokenBalance.ValidApproveMap, data.CreateIdxKey)
 
@@ -108,8 +107,7 @@ func (g *BRC20ModuleIndexer) ProcessApprove(data *model.InscriptionBRC20Data, ap
 	fromTokenBalance.History = append(fromTokenBalance.History, fromHistory)
 
 	// set to
-	tokenBalance.UpdateHeight = g.BestHeight
-	if data.BlockTime > 0 {
+	if (latestHeight - int(data.Height) + 1) >= conf.BRC20_MODULE_SAFE_CONFIRMATION { // how many confirmes ok
 		tokenBalance.SwapAccountBalanceSafe = tokenBalance.SwapAccountBalanceSafe.Add(approveInfo.Amount)
 	}
 	tokenBalance.SwapAccountBalance = tokenBalance.SwapAccountBalance.Add(approveInfo.Amount)
@@ -139,11 +137,11 @@ func (g *BRC20ModuleIndexer) ProcessInscribeApprove(data *model.InscriptionBRC20
 		return errors.New("module invalid")
 	}
 
-	if len(body.Tick) != 4 {
+	uniqueLowerTicker, err := utils.GetValidUniqueLowerTickerTicker(body.Tick)
+	if err != nil {
 		return errors.New("tick invalid")
 	}
 
-	uniqueLowerTicker := strings.ToLower(body.Tick)
 	tokenInfo, ok := g.InscriptionsTickerInfoMap[uniqueLowerTicker]
 	if !ok {
 		return errors.New("tick not exist")
@@ -158,7 +156,7 @@ func (g *BRC20ModuleIndexer) ProcessInscribeApprove(data *model.InscriptionBRC20
 		return errors.New("amount out of range")
 	}
 
-	balanceApprove := decimal.NewDecimalCopy(amt)
+	balanceApprove := amt
 
 	// Unify ticker case
 	body.Tick = tokenInfo.Ticker
@@ -193,11 +191,10 @@ func (g *BRC20ModuleIndexer) ProcessInscribeApprove(data *model.InscriptionBRC20
 
 		// Update personal approve lookup table ValidApproveMap
 		if moduleTokenBalance.ValidApproveMap == nil {
-			moduleTokenBalance.ValidApproveMap = make(map[string]*model.InscriptionBRC20Data, 1)
+			moduleTokenBalance.ValidApproveMap = make(map[uint64]*model.InscriptionBRC20Data, 1)
 		}
 		moduleTokenBalance.ValidApproveMap[data.CreateIdxKey] = data
 
-		moduleTokenBalance.UpdateHeight = g.BestHeight
 		// Update global approve lookup table
 		g.InscriptionsValidApproveMap[data.CreateIdxKey] = approveInfo
 

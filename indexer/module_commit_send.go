@@ -4,9 +4,9 @@ import (
 	"errors"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionSend(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) error {
@@ -29,10 +29,9 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionSend(moduleInfo *model.BRC20Mo
 
 	// User Real-time Balance Update
 	tokenBalanceFrom.SwapAccountBalance = tokenBalanceFrom.SwapAccountBalance.Sub(tokenAmt)
+	tokenBalanceFrom.SwapAccountBalanceSafe = tokenBalanceFrom.SwapAccountBalanceSafe.Sub(tokenAmt)
 	tokenBalanceTo.SwapAccountBalance = tokenBalanceTo.SwapAccountBalance.Add(tokenAmt)
-
-	tokenBalanceFrom.UpdateHeight = g.BestHeight
-	tokenBalanceTo.UpdateHeight = g.BestHeight
+	tokenBalanceTo.SwapAccountBalanceSafe = tokenBalanceTo.SwapAccountBalanceSafe.Add(tokenAmt)
 
 	log.Printf("pool send [%s] swappable: %s -> %s", token, tokenBalanceFrom.SwapAccountBalance, tokenBalanceTo.SwapAccountBalance)
 

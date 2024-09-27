@@ -5,10 +5,10 @@ import (
 	"errors"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/conf"
-	"github.com/unisat-wallet/libbrc20-indexer/decimal"
-	"github.com/unisat-wallet/libbrc20-indexer/model"
-	"github.com/unisat-wallet/libbrc20-indexer/utils"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/conf"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/decimal"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/utils"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionGasFee(moduleInfo *model.BRC20ModuleSwapInfo, userPkScript string, gasAmt *decimal.Decimal) error {
@@ -29,10 +29,9 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionGasFee(moduleInfo *model.BRC20
 
 	// User Real-time gas Balance Update
 	tokenBalance.SwapAccountBalance = tokenBalance.SwapAccountBalance.Sub(gasAmt)
+	tokenBalance.SwapAccountBalanceSafe = tokenBalance.SwapAccountBalanceSafe.Sub(gasAmt)
 	gasToBalance.SwapAccountBalance = gasToBalance.SwapAccountBalance.Add(gasAmt)
-
-	tokenBalance.UpdateHeight = g.BestHeight
-	gasToBalance.UpdateHeight = g.BestHeight
+	gasToBalance.SwapAccountBalanceSafe = gasToBalance.SwapAccountBalanceSafe.Add(gasAmt)
 
 	// log.Printf("gas fee[%s]: %s user: %s, gasTo: %s", moduleInfo.GasTick, gasAmt, tokenBalance.SwapAccountBalance, gasToBalance.SwapAccountBalance)
 	return nil

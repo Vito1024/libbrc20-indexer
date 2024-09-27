@@ -4,7 +4,7 @@ import (
 	"errors"
 	"log"
 
-	"github.com/unisat-wallet/libbrc20-indexer/model"
+	"github.com/unisat-wallet/libbrc20-indexer-fractal/model"
 )
 
 func (g *BRC20ModuleIndexer) ProcessCommitFunctionDecreaseApproval(moduleInfo *model.BRC20ModuleSwapInfo, f *model.SwapFunctionData) error {
@@ -23,9 +23,9 @@ func (g *BRC20ModuleIndexer) ProcessCommitFunctionDecreaseApproval(moduleInfo *m
 
 	// User Real-time Balance Update
 	tokenBalance.SwapAccountBalance = tokenBalance.SwapAccountBalance.Sub(tokenAmt)
+	tokenBalance.SwapAccountBalanceSafe = tokenBalance.SwapAccountBalanceSafe.Sub(tokenAmt)
 	tokenBalance.AvailableBalance = tokenBalance.AvailableBalance.Add(tokenAmt)
-
-	tokenBalance.UpdateHeight = g.BestHeight
+	tokenBalance.AvailableBalanceSafe = tokenBalance.AvailableBalanceSafe.Add(tokenAmt)
 
 	log.Printf("pool decreaseApproval [%s] available: %s, swappable: %s", token, tokenBalance.AvailableBalance, tokenBalance.SwapAccountBalance)
 	return nil
